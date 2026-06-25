@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aether Nexus AI — Chutes KPI Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['DM Sans', 'system-ui', 'sans-serif'] },
+          colors: {
+            nexus: {
+              50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 300: '#a5b4fc',
+              400: '#818cf8', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca',
+              800: '#1e1b4b', 900: '#0f0d2e', 950: '#07051a',
+            },
+            surface: { DEFAULT: '#111827', card: '#1a2234', border: '#2d3748' }
+          },
+          boxShadow: {
+            glow: '0 0 40px rgba(99, 102, 241, 0.15)',
+            card: '0 4px 24px rgba(0,0,0,0.4)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: linear-gradient(135deg, #07051a 0%, #0f0d2e 40%, #111827 100%); min-height: 100vh; }
+    .glass { background: rgba(26, 34, 52, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(99,102,241,0.12); }
+    .gradient-text { background: linear-gradient(135deg, #a5b4fc, #6366f1, #818cf8); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .agent-pulse { animation: pulse 2s cubic-bezier(0.4,0,0.6,1) infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #4338ca; border-radius: 3px; }
+  </style>
+</head>
+<body class="font-sans text-gray-100 antialiased">
+
+  <!-- Login Screen -->
+  <div id="login-screen" class="min-h-screen flex items-center justify-center p-6">
+    <div class="glass rounded-2xl shadow-glow p-10 w-full max-w-md">
+      <div class="text-center mb-8">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-nexus-600/20 border border-nexus-500/30 mb-4">
+          <svg class="w-8 h-8 text-nexus-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        </div>
+        <h1 class="text-2xl font-bold gradient-text">Aether Nexus AI</h1>
+        <p class="text-gray-400 text-sm mt-2">Sign In with Chutes · KPI Escrow Engine</p>
+      </div>
+      <form id="login-form" class="space-y-4">
+        <div>
+          <label class="block text-xs font-medium text-gray-400 mb-1.5">Chutes ID</label>
+          <input id="chutes-id" type="text" required placeholder="chutes_user_abc123"
+            class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 focus:ring-1 focus:ring-nexus-500 outline-none text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-400 mb-1.5">Display Name</label>
+          <input id="display-name" type="text" required placeholder="Acme Corp / Jane Dev"
+            class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 focus:ring-1 focus:ring-nexus-500 outline-none text-sm" />
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-gray-400 mb-1.5">Role</label>
+          <select id="user-role"
+            class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 outline-none text-sm">
+            <option value="company">🏢 Company (Client)</option>
+            <option value="freelancer">👨‍💻 Freelancer</option>
+          </select>
+        </div>
+        <button type="submit"
+          class="w-full py-3 rounded-xl bg-gradient-to-r from-nexus-600 to-nexus-500 hover:from-nexus-500 hover:to-nexus-400 font-semibold text-sm transition shadow-lg shadow-nexus-600/25">
+          Sign In with Chutes
+        </button>
+      </form>
+      <p class="text-center text-xs text-gray-500 mt-6">Powered by Chutes Decentralized Compute</p>
+    </div>
+  </div>
+
+  <!-- Dashboard -->
+  <div id="dashboard" class="hidden">
+    <!-- Sidebar -->
+    <aside class="fixed left-0 top-0 h-full w-64 glass border-r border-surface-border z-40 flex flex-col">
+      <div class="p-6 border-b border-surface-border">
+        <h2 class="font-bold text-lg gradient-text">Aether Nexus</h2>
+        <p id="sidebar-role" class="text-xs text-gray-400 mt-1"></p>
+      </div>
+      <nav class="flex-1 p-4 space-y-1">
+        <button data-view="overview" class="nav-btn w-full text-left px-4 py-3 rounded-xl text-sm font-medium bg-nexus-600/20 text-nexus-300 border border-nexus-500/20">📊 Overview</button>
+        <button data-view="contracts" class="nav-btn w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-white/5">📋 Contracts</button>
+        <button data-view="agents" class="nav-btn w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-white/5">🤖 Agent Pipeline</button>
+        <button data-view="audit" class="nav-btn w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-gray-400 hover:bg-white/5">⛓️ On-Chain Audit</button>
+      </nav>
+      <div class="p-4 border-t border-surface-border">
+        <div class="flex items-center gap-3 px-3 py-2">
+          <div class="w-9 h-9 rounded-full bg-gradient-to-br from-nexus-500 to-purple-600 flex items-center justify-center text-xs font-bold" id="avatar-initial">A</div>
+          <div class="flex-1 min-w-0">
+            <p id="user-name" class="text-sm font-medium truncate"></p>
+            <p id="user-chutes-id" class="text-xs text-gray-500 truncate"></p>
+          </div>
+        </div>
+        <button id="logout-btn" class="w-full mt-2 px-4 py-2 text-xs text-gray-400 hover:text-red-400 transition">Sign Out</button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="ml-64 p-8">
+      <header class="flex items-center justify-between mb-8">
+        <div>
+          <h1 id="page-title" class="text-2xl font-bold">Overview</h1>
+          <p id="page-subtitle" class="text-gray-400 text-sm mt-1">Multi-agent KPI verification dashboard</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span id="mock-badge" class="hidden px-3 py-1 rounded-full text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20">Mock Chutes Mode</span>
+          <span class="px-3 py-1 rounded-full text-xs bg-green-500/10 text-green-400 border border-green-500/20 agent-pulse">● Live</span>
+        </div>
+      </header>
+
+      <!-- Overview View -->
+      <div id="view-overview" class="view-panel space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="glass rounded-2xl p-5 shadow-card">
+            <p class="text-xs text-gray-400 uppercase tracking-wider">Active Contracts</p>
+            <p id="stat-contracts" class="text-3xl font-bold mt-2">0</p>
+          </div>
+          <div class="glass rounded-2xl p-5 shadow-card">
+            <p class="text-xs text-gray-400 uppercase tracking-wider">Approved</p>
+            <p id="stat-approved" class="text-3xl font-bold mt-2 text-green-400">0</p>
+          </div>
+          <div class="glass rounded-2xl p-5 shadow-card">
+            <p class="text-xs text-gray-400 uppercase tracking-wider">Agent Inferences</p>
+            <p id="stat-inferences" class="text-3xl font-bold mt-2 text-nexus-400">0</p>
+          </div>
+          <div class="glass rounded-2xl p-5 shadow-card">
+            <p class="text-xs text-gray-400 uppercase tracking-wider">Consensus Score</p>
+            <p id="stat-score" class="text-3xl font-bold mt-2">—</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="glass rounded-2xl p-6 shadow-card">
+            <h3 class="font-semibold mb-4">Agent Consensus Pipeline</h3>
+            <div id="consensus-chart"></div>
+          </div>
+          <div class="glass rounded-2xl p-6 shadow-card">
+            <h3 class="font-semibold mb-4">KPI Score Radar</h3>
+            <div id="radar-chart"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Contracts View -->
+      <div id="view-contracts" class="view-panel hidden space-y-6">
+        <!-- Company: Create Contract -->
+        <div id="create-contract-panel" class="glass rounded-2xl p-6 shadow-card hidden">
+          <h3 class="font-semibold mb-4">✨ Create Smart Task</h3>
+          <form id="create-contract-form" class="space-y-4">
+            <textarea id="task-description" rows="4" required
+              placeholder="We need a FastAPI backend with test coverage ≥ 85% and API response time &lt; 200ms..."
+              class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 outline-none text-sm resize-none"></textarea>
+            <div class="grid grid-cols-2 gap-4">
+              <input id="freelancer-id" type="text" placeholder="Freelancer Chutes ID (optional)"
+                class="px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 outline-none text-sm" />
+              <input id="budget" type="number" placeholder="Budget USD (optional)" step="100"
+                class="px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border focus:border-nexus-500 outline-none text-sm" />
+            </div>
+            <button type="submit" class="px-6 py-3 rounded-xl bg-gradient-to-r from-nexus-600 to-nexus-500 font-semibold text-sm hover:opacity-90 transition">
+              🤖 Generate KPI with Agent 1 (Architect)
+            </button>
+          </form>
+        </div>
+
+        <!-- Freelancer: Submit Work -->
+        <div id="submit-work-panel" class="glass rounded-2xl p-6 shadow-card hidden">
+          <h3 class="font-semibold mb-4">📤 Submit Work for Verification</h3>
+          <form id="submit-work-form" class="space-y-4">
+            <select id="submit-contract-id" required
+              class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border outline-none text-sm">
+              <option value="">Select active contract...</option>
+            </select>
+            <input id="github-url" type="url" placeholder="GitHub repository URL"
+              class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border outline-none text-sm" />
+            <div class="grid grid-cols-2 gap-4">
+              <input id="reported-coverage" type="number" placeholder="Test coverage %" min="0" max="100" value="88"
+                class="px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border outline-none text-sm" />
+              <input id="reported-latency" type="number" placeholder="Response time (ms)" min="1" value="150"
+                class="px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border outline-none text-sm" />
+            </div>
+            <textarea id="artifact-notes" rows="2" placeholder="Additional notes..."
+              class="w-full px-4 py-3 rounded-xl bg-nexus-950/50 border border-surface-border outline-none text-sm resize-none"></textarea>
+            <button type="submit" class="px-6 py-3 rounded-xl bg-gradient-to-r from-green-600 to-emerald-500 font-semibold text-sm hover:opacity-90 transition">
+              ⚡ Run Multi-Agent Verification (Agents 2 + 3)
+            </button>
+          </form>
+        </div>
+
+        <div class="glass rounded-2xl p-6 shadow-card">
+          <h3 class="font-semibold mb-4">Contract List</h3>
+          <div id="contracts-list" class="space-y-3">
+            <p class="text-gray-500 text-sm">No contracts yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Agents View -->
+      <div id="view-agents" class="view-panel hidden space-y-6">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div class="glass rounded-2xl p-6 shadow-card border-l-4 border-nexus-500">
+            <div class="flex items-center gap-3 mb-3">
+              <span class="text-2xl">🏗️</span>
+              <div>
+                <h4 class="font-semibold">Agent 1 — Architect</h4>
+                <p class="text-xs text-gray-400">Legal/KPI Architect</p>
+              </div>
+            </div>
+            <p class="text-sm text-gray-300">Converts plain-English corporate tasks into strict JSON KPI contracts via Chutes on-chain inference.</p>
+            <p id="agent1-status" class="mt-3 text-xs text-gray-500">Status: idle</p>
+          </div>
+          <div class="glass rounded-2xl p-6 shadow-card border-l-4 border-amber-500">
+            <div class="flex items-center gap-3 mb-3">
+              <span class="text-2xl">🔍</span>
+              <div>
+                <h4 class="font-semibold">Agent 2 — Validator</h4>
+                <p class="text-xs text-gray-400">Code/Artifact Validator</p>
+              </div>
+            </div>
+            <p class="text-sm text-gray-300">Audits freelancer submissions against KPI metrics — coverage, latency, language compliance.</p>
+            <p id="agent2-status" class="mt-3 text-xs text-gray-500">Status: idle</p>
+          </div>
+          <div class="glass rounded-2xl p-6 shadow-card border-l-4 border-green-500">
+            <div class="flex items-center gap-3 mb-3">
+              <span class="text-2xl">⚖️</span>
+              <div>
+                <h4 class="font-semibold">Agent 3 — Auditor</h4>
+                <p class="text-xs text-gray-400">Consensus Agent</p>
+              </div>
+            </div>
+            <p class="text-sm text-gray-300">Reviews Agent 1+2 outputs, reaches Approved/Rejected verdict, writes immutable audit log.</p>
+            <p id="agent3-status" class="mt-3 text-xs text-gray-500">Status: idle</p>
+          </div>
+        </div>
+        <div class="glass rounded-2xl p-6 shadow-card">
+          <h3 class="font-semibold mb-4">Live Agent Activity Feed</h3>
+          <div id="activity-feed" class="space-y-2 max-h-96 overflow-y-auto">
+            <p class="text-gray-500 text-sm">No activity yet.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Audit View -->
+      <div id="view-audit" class="view-panel hidden space-y-6">
+        <div class="glass rounded-2xl p-6 shadow-card">
+          <h3 class="font-semibold mb-2">⛓️ Immutable On-Chain Audit Trail</h3>
+          <p class="text-sm text-gray-400 mb-4">Verification results logged on Chutes decentralized compute — tamper-proof consensus records.</p>
+          <div id="audit-trail" class="space-y-3">
+            <p class="text-gray-500 text-sm">No audit records yet.</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="fixed bottom-6 right-6 hidden glass rounded-xl px-5 py-3 shadow-glow text-sm z-50 max-w-sm"></div>
+
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

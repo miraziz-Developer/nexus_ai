@@ -72,8 +72,12 @@ def main() -> None:
             page.click(f'button.nav-btn[data-view="{view}"]')
             time.sleep(1.5)
 
-        # Load chart data for overview
-        page.evaluate(f"fetch('/api/v1/verify/consensus-graph/{contract_id}', {{headers:{{Authorization:'Bearer {token}'}}}})")
+        # Load contracts, select one to populate charts
+        nav("contracts")
+        card = page.query_selector(".contract-card")
+        if card:
+            card.click()
+            time.sleep(2)
 
         nav("overview")
         time.sleep(2.5)

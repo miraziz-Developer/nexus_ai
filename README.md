@@ -221,7 +221,24 @@ python scripts/verify_chutes.py
 
 ---
 
-## Hackathon Submission Checklist
+## Image Gallery (Devpost)
+
+Pre-captured screenshots (1920×1280, 3:2) in [`docs/screenshots/`](docs/screenshots/):
+
+| Screenshot | Description |
+|------------|-------------|
+| `01-dashboard-overview.png` | Overview — ApexCharts consensus & radar |
+| `02-company-create-contract.png` | Company creating smart task (Agent 1) |
+| `03-agent-consensus-pipeline.png` | Multi-agent activity feed & consensus |
+| `04-onchain-audit-trail.png` | Immutable on-chain audit records |
+
+Regenerate anytime:
+```bash
+MOCK_CHUTES_WHEN_NO_KEY=true uvicorn app.main:app --port 8000
+python scripts/capture_screenshots.py
+```
+
+---
 
 - [x] Multi-agent consensus on Chutes compute
 - [x] Sign In with Chutes integration

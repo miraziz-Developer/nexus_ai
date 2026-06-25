@@ -27,12 +27,15 @@ class ChutesClientError(Exception):
 class ChutesClient:
     """
     Async client for Chutes OpenAI-compatible inference and management APIs.
-    Falls back to deterministic mock responses when MOCK_CHUTES_WHEN_NO_KEY=true.
+    Falls back to deterministic mock responses when MOCK_CHUTES_WHEN_NO_KEY=true
+    or when CHUTES_FALLBACK_ON_ERROR=true and the live API returns quota/balance errors.
     """
 
     def __init__(self) -> None:
         self.settings = get_settings()
         self._client: httpx.AsyncClient | None = None
+        self.last_inference_mode: str = "unknown"
+        self.fallback_count: int = 0
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
@@ -53,6 +56,46 @@ class ChutesClient:
     def _mock_inference_id(self, prefix: str) -> str:
         return f"mock-chutes-{prefix}-{uuid.uuid4().hex[:12]}"
 
+    async def _return_mock(
+        self,
+        agent_name: str,
+        model: str,
+        messages: list[dict[str, str]],
+        *,
+        reason: str,
+        inference_id: str | None = None,
+    ) -> dict[str, Any]:
+        inference_id = inference_id or self._mock_inference_id(agent_name)
+        logger.warning("[%s] MOCK inference (%s) — model=%s", agent_name, reason, model)
+        self.last_inference_mode = "mock"
+        self.fallback_count += 1
+        content = await self._mock_response(agent_name, messages)
+        return {
+            "id": inference_id,
+            "object": "chat.completion",
+            "model": model,
+            "choices": [{"message": {"role": "assistant", "content": content}}],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0},
+            "_mock": True,
+            "_fallback_reason": reason,
+        }
+
+    @staticmethod
+    def _should_fallback(status_code: int, body: str) -> bool:
+        if status_code in (402, 429, 503):
+            return True
+        lower = body.lower()
+        return any(
+            phrase in lower
+            for phrase in (
+                "quota exceeded",
+                "balance is $0",
+                "insufficient",
+                "model not found",
+                "payment",
+            )
+        )
+
     async def chat_completion(
         self,
         *,
@@ -69,20 +112,9 @@ class ChutesClient:
         inference_id = self._mock_inference_id(agent_name)
 
         if self.settings.use_mock_inference:
-            logger.warning(
-                "[%s] MOCK inference (no valid CHUTES_API_KEY) — model=%s",
-                agent_name,
-                model,
+            return await self._return_mock(
+                agent_name, model, messages, reason="no_api_key", inference_id=inference_id
             )
-            content = await self._mock_response(agent_name, messages)
-            return {
-                "id": inference_id,
-                "object": "chat.completion",
-                "model": model,
-                "choices": [{"message": {"role": "assistant", "content": content}}],
-                "usage": {"prompt_tokens": 0, "completion_tokens": 0},
-                "_mock": True,
-            }
 
         url = f"{self.settings.chutes_inference_url.rstrip('/')}/chat/completions"
         payload: dict[str, Any] = {
@@ -101,11 +133,22 @@ class ChutesClient:
             response.raise_for_status()
             data = response.json()
             inference_id = data.get("id", inference_id)
+            self.last_inference_mode = "chutes_live"
             logger.info("[%s] Chutes inference OK | id=%s", agent_name, inference_id)
             return data
         except httpx.HTTPStatusError as exc:
             body = exc.response.text
             logger.error("[%s] Chutes HTTP %s: %s", agent_name, exc.response.status_code, body)
+            if self.settings.chutes_fallback_on_error and self._should_fallback(
+                exc.response.status_code, body
+            ):
+                return await self._return_mock(
+                    agent_name,
+                    model,
+                    messages,
+                    reason=f"api_error_{exc.response.status_code}",
+                    inference_id=inference_id,
+                )
             raise ChutesClientError(
                 f"Chutes inference failed: HTTP {exc.response.status_code}",
                 status_code=exc.response.status_code,
@@ -113,6 +156,10 @@ class ChutesClient:
             ) from exc
         except httpx.RequestError as exc:
             logger.error("[%s] Chutes request error: %s", agent_name, exc)
+            if self.settings.chutes_fallback_on_error:
+                return await self._return_mock(
+                    agent_name, model, messages, reason="network_error", inference_id=inference_id
+                )
             raise ChutesClientError(f"Chutes network error: {exc}") from exc
 
     async def _mock_response(self, agent_name: str, messages: list[dict[str, str]]) -> str:

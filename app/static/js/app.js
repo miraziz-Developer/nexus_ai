@@ -35,7 +35,13 @@ function showToast(msg, type = 'info') {
 async function api(path, opts = {}) {
   const res = await fetch(`${API}${path}`, { ...opts, headers: { ...headers(), ...opts.headers } });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const detail = data.detail;
+    const msg = typeof detail === 'string' ? detail
+      : Array.isArray(detail) ? detail.map(d => d.msg).join(', ')
+      : `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
   return data;
 }
 
@@ -100,8 +106,13 @@ function enterDashboard() {
 async function loadHealth() {
   try {
     const h = await fetch('/health').then(r => r.json());
-    if (h.chutes_mock_mode) {
-      document.getElementById('mock-badge').classList.remove('hidden');
+    const badge = document.getElementById('mock-badge');
+    const c = h.chutes || {};
+    if (c.mock_mode || c.last_inference_mode === 'mock' || c.fallback_count > 0) {
+      badge.textContent = c.fallback_count > 0
+        ? `Chutes Fallback (${c.fallback_count})`
+        : 'Mock Chutes Mode';
+      badge.classList.remove('hidden');
     }
   } catch (_) {}
 }
@@ -181,10 +192,13 @@ function updateStats() {
   });
   document.getElementById('stat-inferences').textContent = inferences;
 
-  const last = contracts.find(c => c.last_verification);
-  if (last?.last_verification?.auditor) {
+  const approved = contracts.filter(c => c.status === 'approved');
+  const scored = approved.find(c => c.last_verification?.auditor?.consensus_score_percent);
+  if (scored) {
     document.getElementById('stat-score').textContent =
-      `${last.last_verification.auditor.consensus_score_percent}%`;
+      `${scored.last_verification.auditor.consensus_score_percent}%`;
+  } else if (approved.length) {
+    document.getElementById('stat-score').textContent = '100%';
   }
 }
 

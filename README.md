@@ -54,7 +54,7 @@ Unlike simple "one prompt → API wrapper" projects, we run **3 independent agen
 | **Agent 2** | The Code/Artifact Validator | Audits freelancer submission (GitHub, coverage, latency) via on-chain inference |
 | **Agent 3** | The Auditor/Consensus Agent | Compares Agent 1+2 outputs → final **Approved/Rejected** + cryptographic audit hash |
 
-**Model:** `meta-llama/Meta-Llama-3-70B-Instruct` on `https://llm.chutes.ai/v1`
+**Model:** `Qwen/Qwen3-32B-TEE` on `https://llm.chutes.ai/v1`
 
 ### 2. Deep Native Chutes Integration (25 pts)
 
@@ -176,13 +176,25 @@ nexus_ai/
 ## Configuration
 
 ```env
-CHUTES_API_KEY=cpk_your_real_key_here          # Required for judging
-CHUTES_INFERENCE_URL=https://llm.chutes.ai/v1
-MOCK_CHUTES_WHEN_NO_KEY=false                  # Must be false for real inference
+CHUTES_API_KEY=cpk_your_real_key_here
+MOCK_CHUTES_WHEN_NO_KEY=false
+CHUTES_FALLBACK_ON_ERROR=true    # demo works while balance is $0
 
-ARCHITECT_MODEL=meta-llama/Meta-Llama-3-70B-Instruct
-VALIDATOR_MODEL=meta-llama/Meta-Llama-3-70B-Instruct
-AUDITOR_MODEL=meta-llama/Meta-Llama-3-70B-Instruct
+ARCHITECT_MODEL=Qwen/Qwen3-32B-TEE
+VALIDATOR_MODEL=Qwen/Qwen3-32B-TEE
+AUDITOR_MODEL=Qwen/Qwen3-32B-TEE
+```
+
+List models available on your account:
+```bash
+curl -s -H "Authorization: Bearer $CHUTES_API_KEY" https://llm.chutes.ai/v1/models | python3 -m json.tool
+```
+
+### Run full test suite
+```bash
+uvicorn app.main:app --port 8000   # terminal 1
+python scripts/smoke_test.py       # terminal 2 — expects 17/17 passed
+python scripts/verify_chutes.py    # Chutes key + balance check
 ```
 
 | Mode | `MOCK_CHUTES_WHEN_NO_KEY` | Behavior |

@@ -30,9 +30,10 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     logger.info("Starting %s [%s]", settings.app_name, settings.app_env)
     logger.info(
-        "Chutes inference: %s | mock_mode=%s",
+        "Chutes inference: %s | mode=%s | fallback=%s",
         settings.chutes_inference_url,
-        settings.use_mock_inference,
+        settings.inference_mode,
+        settings.chutes_fallback_on_error,
     )
     yield
     await get_chutes_client().close()
@@ -76,10 +77,21 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     async def health():
+        client = get_chutes_client()
+        settings = get_settings()
         return {
             "status": "healthy",
             "app": settings.app_name,
-            "chutes_mock_mode": settings.use_mock_inference,
+            "version": "0.1.0",
+            "chutes": {
+                "inference_url": settings.chutes_inference_url,
+                "has_api_key": settings.has_chutes_api_key,
+                "mock_mode": settings.use_mock_inference,
+                "fallback_on_error": settings.chutes_fallback_on_error,
+                "last_inference_mode": client.last_inference_mode,
+                "fallback_count": client.fallback_count,
+                "architect_model": settings.architect_model,
+            },
             "agents": ["architect", "validator", "auditor"],
         }
 

@@ -99,6 +99,7 @@ class ContractResponse(BaseModel):
     architect_inference_id: str | None = None
     created_at: datetime
     updated_at: datetime
+    last_verification: dict[str, Any] | None = None
 
 
 class ContractListResponse(BaseModel):

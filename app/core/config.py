@@ -25,11 +25,12 @@ class Settings(BaseSettings):
     chutes_oauth_client_secret: str = ""
     chutes_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/callback"
 
-    architect_model: str = "meta-llama/Meta-Llama-3-70B-Instruct"
-    validator_model: str = "meta-llama/Meta-Llama-3-70B-Instruct"
-    auditor_model: str = "meta-llama/Meta-Llama-3-70B-Instruct"
+    architect_model: str = "Qwen/Qwen3-32B-TEE"
+    validator_model: str = "Qwen/Qwen3-32B-TEE"
+    auditor_model: str = "Qwen/Qwen3-32B-TEE"
 
     mock_chutes_when_no_key: bool = True
+    chutes_fallback_on_error: bool = True
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -43,6 +44,12 @@ class Settings(BaseSettings):
     @property
     def use_mock_inference(self) -> bool:
         return self.mock_chutes_when_no_key and not self.has_chutes_api_key
+
+    @property
+    def inference_mode(self) -> str:
+        if self.use_mock_inference:
+            return "mock"
+        return "chutes_live"
 
 
 @lru_cache

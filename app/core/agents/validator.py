@@ -8,6 +8,7 @@ from typing import Any
 
 from app.core.chutes_client import ChutesClientError, get_chutes_client
 from app.core.config import get_settings
+from app.core.github_client import analyze_repository
 from app.models.schemas import KPIBlueprint, SubmitWorkRequest, ValidatorOutput
 
 logger = logging.getLogger("aether.agent.validator")
@@ -51,12 +52,15 @@ async def run_validator(
     logger.info("[VALIDATOR] contract_id=%s", submission.contract_id)
     logger.info("[VALIDATOR] github_url=%s", submission.github_url or "N/A")
 
+    github_analysis = await analyze_repository(submission.github_url)
+
     submission_payload = {
         "contract_kpi": contract_kpi.model_dump(),
         "submission": submission.model_dump(),
         "required_metrics": contract_kpi.required_metrics.model_dump(),
         "reported_test_coverage_percent": submission.reported_test_coverage_percent or 0,
         "reported_response_time_ms": submission.reported_response_time_ms or 9999,
+        "github_analysis": github_analysis,
     }
 
     messages = [

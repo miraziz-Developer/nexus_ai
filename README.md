@@ -252,12 +252,34 @@ python scripts/capture_screenshots.py
 
 ---
 
+## Production Features (v1.0)
+
+| Feature | Status |
+|---------|--------|
+| Persistent SQLite DB | Data survives restarts (`data/nexus.db`) |
+| PostgreSQL ready | `DATABASE_URL=postgresql+asyncpg://...` |
+| Live Chutes inference | 3-agent consensus on `Qwen/Qwen3-32B-TEE` |
+| GitHub repo analysis | Agent 2 fetches real repo metadata |
+| Docker deploy | `docker compose up --build` |
+| pytest suite | `pytest -v` |
+| Smoke test | `python scripts/smoke_test.py` (17 checks) |
+
+```bash
+docker compose up --build -d   # production deploy
+pytest -v                      # unit/integration tests
+python scripts/smoke_test.py   # full E2E
+```
+
+---
+
+## Hackathon Submission Checklist
+
 - [x] Multi-agent consensus on Chutes compute
 - [x] Sign In with Chutes integration
 - [x] On-chain inference audit logs
 - [x] Working FastAPI MVP + dashboard
-- [ ] Set `CHUTES_API_KEY` in `.env` + `MOCK_CHUTES_WHEN_NO_KEY=false`
-- [ ] Run `python scripts/verify_chutes.py` — confirm real inference IDs
+- [x] Persistent database
+- [x] Live Chutes API + real inference IDs
 - [ ] Record 3–5 min demo video (see `DEMO_VIDEO_SCRIPT.md`)
 - [ ] Submit GitHub + YouTube links on Devpost
 

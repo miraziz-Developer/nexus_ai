@@ -6,14 +6,15 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.v1 import auth, contracts, verify
-from app.core.chutes_client import get_chutes_client
+from app.core.chutes_client import ChutesClientError, get_chutes_client
 from app.core.config import get_settings
+from app.core.db import dispose_db, init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,15 +29,18 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
+    await init_db()
     logger.info("Starting %s [%s]", settings.app_name, settings.app_env)
+    logger.info("Database: %s", settings.database_url.split("///")[-1][:40])
     logger.info(
-        "Chutes inference: %s | mode=%s | fallback=%s",
+        "Chutes: %s | mode=%s | fallback=%s",
         settings.chutes_inference_url,
         settings.inference_mode,
         settings.chutes_fallback_on_error,
     )
     yield
     await get_chutes_client().close()
+    await dispose_db()
     logger.info("Shutdown complete")
 
 
@@ -49,7 +53,7 @@ def create_app() -> FastAPI:
             "Decentralized autonomous escrow and multi-agent KPI verification engine "
             "powered by Chutes decentralized compute."
         ),
-        version="0.1.0",
+        version="1.0.0",
         lifespan=lifespan,
         docs_url="/docs",
         redoc_url="/redoc",
@@ -62,6 +66,23 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(ChutesClientError)
+    async def chutes_error_handler(_request: Request, exc: ChutesClientError):
+        return JSONResponse(
+            status_code=exc.status_code or 502,
+            content={"detail": str(exc), "type": "chutes_error"},
+        )
+
+    @app.exception_handler(Exception)
+    async def global_error_handler(_request: Request, exc: Exception):
+        if isinstance(exc, HTTPException):
+            raise exc
+        logger.exception("Unhandled error: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "type": "server_error"},
+        )
 
     api_prefix = "/api/v1"
     app.include_router(auth.router, prefix=api_prefix)
@@ -78,11 +99,11 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         client = get_chutes_client()
-        settings = get_settings()
         return {
             "status": "healthy",
             "app": settings.app_name,
-            "version": "0.1.0",
+            "version": "1.0.0",
+            "database": settings.database_url.split("://")[0],
             "chutes": {
                 "inference_url": settings.chutes_inference_url,
                 "has_api_key": settings.has_chutes_api_key,
@@ -93,6 +114,11 @@ def create_app() -> FastAPI:
                 "architect_model": settings.architect_model,
             },
             "agents": ["architect", "validator", "auditor"],
+            "features": {
+                "persistent_db": True,
+                "github_analysis": True,
+                "multi_agent_consensus": True,
+            },
         }
 
     return app

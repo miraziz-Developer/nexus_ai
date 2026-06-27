@@ -10,7 +10,6 @@ from typing import Any
 
 from app.core.chutes_client import ChutesClientError, get_chutes_client
 from app.core.config import get_settings
-from app.core.database import append_audit_log
 from app.models.schemas import AuditorOutput, KPIBlueprint, ValidatorOutput, VerificationVerdict
 
 logger = logging.getLogger("aether.agent.auditor")
@@ -88,30 +87,27 @@ async def run_auditor(
     parsed = _parse_auditor_response(content, validator_output)
     output = AuditorOutput(**parsed, inference_id=inference_id)
 
-    # Immutable on-chain style audit record
-    on_chain_record = append_audit_log(
-        {
-            "contract_id": contract_id,
-            "agent": "auditor_consensus",
-            "verdict": output.verdict.value,
-            "consensus_score_percent": output.consensus_score_percent,
-            "audit_hash": output.audit_hash,
-            "architect_kpi": contract_kpi.model_dump(),
-            "validator_output": validator_output.model_dump(),
-            "auditor_summary": output.summary,
-            "inference_ids": {
-                "validator": validator_output.inference_id,
-                "auditor": inference_id,
-            },
-            "network": "chutes-decentralized-compute",
-            "immutable": True,
-        }
-    )
+    # Immutable on-chain style audit payload (persisted by API layer)
+    on_chain_record = {
+        "contract_id": contract_id,
+        "agent": "auditor_consensus",
+        "verdict": output.verdict.value,
+        "consensus_score_percent": output.consensus_score_percent,
+        "audit_hash": output.audit_hash,
+        "architect_kpi": contract_kpi.model_dump(),
+        "validator_output": validator_output.model_dump(),
+        "auditor_summary": output.summary,
+        "inference_ids": {
+            "validator": validator_output.inference_id,
+            "auditor": inference_id,
+        },
+        "network": "chutes-decentralized-compute",
+        "immutable": True,
+    }
 
     logger.info("[AUDITOR] VERDICT: %s", output.verdict.value)
     logger.info("[AUDITOR] Consensus score: %s%%", output.consensus_score_percent)
     logger.info("[AUDITOR] Audit hash: %s", output.audit_hash)
-    logger.info("[AUDITOR] On-chain audit_id: %s", on_chain_record["audit_id"])
     logger.info("[AUDITOR] Agent 3 complete ✓")
     logger.info("═" * 60)
 

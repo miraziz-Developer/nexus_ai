@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     mock_chutes_when_no_key: bool = True
     chutes_fallback_on_error: bool = True
 
+    database_url: str = "sqlite+aiosqlite:///./data/nexus.db"
+    github_token: str = ""
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

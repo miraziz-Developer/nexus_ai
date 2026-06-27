@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.core.database import sessions_db, users_db
 from app.models.schemas import UserRole, UserSchema
+from app.repositories.deps import get_store
+from app.repositories.store import NexusStore
 
 security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
+    store: Annotated[NexusStore, Depends(get_store)],
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
 ) -> UserSchema:
     if credentials is None or not credentials.credentials:
@@ -20,28 +24,16 @@ async def get_current_user(
             detail="Missing authentication token. Sign in with Chutes first.",
         )
 
-    token = credentials.credentials
-    session = sessions_db.get(token)
-    if not session:
+    user = await store.get_session_user(credentials.credentials)
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired session token.",
         )
-
-    chutes_id = session["chutes_id"]
-    user_data = users_db.get(chutes_id)
-    if not user_data:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found.",
-        )
-
-    return UserSchema(**user_data)
+    return user
 
 
 def require_role(*roles: UserRole):
-    """Dependency factory to enforce role-based access."""
-
     async def _checker(user: UserSchema = Depends(get_current_user)) -> UserSchema:
         if user.role not in roles:
             raise HTTPException(

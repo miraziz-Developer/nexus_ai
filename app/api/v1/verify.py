@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user, require_role
+from app.api.v1.contracts import _authorize_contract_access
 from app.core.agents.auditor import build_consensus_graph_data, run_auditor
 from app.core.agents.validator import run_validator
-from app.core.database import (
-    append_verification_log,
-    contracts_db,
-    on_chain_audit_db,
-    verification_logs_db,
-)
 from app.models.schemas import (
     AgentStepLog,
     ContractStatus,
@@ -27,164 +22,117 @@ from app.models.schemas import (
     VerificationStatusResponse,
     VerificationVerdict,
 )
+from app.repositories.deps import get_store
+from app.repositories.store import NexusStore
 
 logger = logging.getLogger("aether.api.verify")
 router = APIRouter(prefix="/verify", tags=["Verification"])
 
 
-def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
-
-
 @router.post("/submit", response_model=VerificationResponse)
 async def submit_work(
     body: SubmitWorkRequest,
-    user: UserSchema = Depends(require_role(UserRole.FREELANCER)),
+    user: Annotated[UserSchema, Depends(require_role(UserRole.FREELANCER))],
+    store: Annotated[NexusStore, Depends(get_store)],
 ) -> VerificationResponse:
-    """
-    Freelancer submits work. Sequentially chains:
-      Agent 2 (Validator) → Agent 3 (Auditor/Consensus)
-    across Chutes decentralized compute infrastructure.
-    """
-    record = contracts_db.get(body.contract_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Contract not found")
+    row = await store.get_contract(body.contract_id)
+    if not row:
+        raise HTTPException(404, "Contract not found")
 
-    fid = record.get("freelancer_chutes_id")
-    if fid and fid != user.chutes_id:
-        raise HTTPException(status_code=403, detail="You are not assigned to this contract")
-    if not fid:
-        record["freelancer_chutes_id"] = user.chutes_id
+    if row.freelancer_chutes_id and row.freelancer_chutes_id != user.chutes_id:
+        raise HTTPException(403, "You are not assigned to this contract")
+    if not row.freelancer_chutes_id:
+        row = await store.update_contract(row, freelancer_chutes_id=user.chutes_id)
 
-    if not record.get("kpi_blueprint"):
-        raise HTTPException(status_code=400, detail="Contract has no KPI blueprint yet")
+    if not row.kpi_blueprint:
+        raise HTTPException(400, "Contract has no KPI blueprint yet")
+    if row.status == ContractStatus.APPROVED.value:
+        raise HTTPException(409, "Contract already approved")
+    if row.status == ContractStatus.VERIFYING.value:
+        raise HTTPException(409, "Verification already in progress")
 
-    if record["status"] in (ContractStatus.APPROVED.value, ContractStatus.VERIFYING.value):
-        if record["status"] == ContractStatus.APPROVED.value:
-            raise HTTPException(status_code=409, detail="Contract already approved")
-
-    kpi = KPIBlueprint(**record["kpi_blueprint"])
+    kpi = KPIBlueprint(**row.kpi_blueprint)
     pipeline: list[AgentStepLog] = []
-    now = _utcnow()
 
     logger.info("╔" + "═" * 58 + "╗")
     logger.info("║  MULTI-AGENT VERIFICATION PIPELINE STARTED                ║")
     logger.info("║  contract_id: %-42s ║", body.contract_id[:42])
     logger.info("╚" + "═" * 58 + "╝")
 
-    record["status"] = ContractStatus.VERIFYING.value
-    record["updated_at"] = now
-    contracts_db[body.contract_id] = record
+    row = await store.update_contract(row, status=ContractStatus.VERIFYING.value)
 
-    append_verification_log(
+    await store.append_verification_log(
         body.contract_id,
-        {
-            "agent": "system",
-            "step": "submission_received",
-            "status": "started",
-            "detail": f"Freelancer {user.chutes_id} submitted work",
-        },
+        {"agent": "system", "step": "submission_received", "status": "completed",
+         "detail": f"Freelancer {user.chutes_id} submitted work"},
     )
-    pipeline.append(
-        AgentStepLog(
-            agent="system",
-            step="submission_received",
-            status="completed",
-            detail="Work submission received",
-            timestamp=now,
-        )
-    )
+    pipeline.append(AgentStepLog(
+        agent="system", step="submission_received", status="completed",
+        detail="Work submission received",
+    ))
 
-    # ── Agent 2: Validator ────────────────────────────────────────────────
-    append_verification_log(
+    await store.append_verification_log(
         body.contract_id,
         {"agent": "validator", "step": "artifact_validation", "status": "running"},
     )
-    pipeline.append(
-        AgentStepLog(agent="validator", step="artifact_validation", status="running", timestamp=now)
-    )
+    pipeline.append(AgentStepLog(agent="validator", step="artifact_validation", status="running"))
 
     try:
         validator_output, validator_inference_id = await run_validator(kpi, body)
     except Exception as exc:
-        logger.exception("[VERIFY] Validator agent failed")
-        record["status"] = ContractStatus.REJECTED.value
-        contracts_db[body.contract_id] = record
-        append_verification_log(
+        logger.exception("[VERIFY] Validator failed")
+        await store.update_contract(row, status=ContractStatus.REJECTED.value)
+        await store.append_verification_log(
             body.contract_id,
             {"agent": "validator", "step": "artifact_validation", "status": "failed", "detail": str(exc)},
         )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Agent 2 (Validator) failed: {exc}",
-        ) from exc
+        raise HTTPException(502, detail=f"Agent 2 (Validator) failed: {exc}") from exc
 
-    append_verification_log(
+    await store.append_verification_log(
         body.contract_id,
         {
-            "agent": "validator",
-            "step": "artifact_validation",
-            "status": "completed",
+            "agent": "validator", "step": "artifact_validation", "status": "completed",
             "detail": f"Score: {validator_output.overall_score_percent}%",
             "inference_id": validator_inference_id,
             "score": validator_output.overall_score_percent,
         },
     )
-    pipeline.append(
-        AgentStepLog(
-            agent="validator",
-            step="artifact_validation",
-            status="completed",
-            detail=f"Overall score: {validator_output.overall_score_percent}%",
-            inference_id=validator_inference_id,
-            timestamp=_utcnow(),
-        )
-    )
+    pipeline.append(AgentStepLog(
+        agent="validator", step="artifact_validation", status="completed",
+        detail=f"Overall score: {validator_output.overall_score_percent}%",
+        inference_id=validator_inference_id,
+    ))
 
-    # ── Agent 3: Auditor / Consensus ──────────────────────────────────────
-    append_verification_log(
+    await store.append_verification_log(
         body.contract_id,
         {"agent": "auditor", "step": "consensus_review", "status": "running"},
     )
-    pipeline.append(
-        AgentStepLog(agent="auditor", step="consensus_review", status="running", timestamp=_utcnow())
-    )
+    pipeline.append(AgentStepLog(agent="auditor", step="consensus_review", status="running"))
 
     try:
-        auditor_output, auditor_inference_id, on_chain_record = await run_auditor(
+        auditor_output, auditor_inference_id, audit_payload = await run_auditor(
             kpi, validator_output, body.contract_id
         )
+        on_chain_record = await store.append_audit_log(audit_payload)
     except Exception as exc:
-        logger.exception("[VERIFY] Auditor agent failed")
-        record["status"] = ContractStatus.REJECTED.value
-        contracts_db[body.contract_id] = record
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Agent 3 (Auditor) failed: {exc}",
-        ) from exc
+        logger.exception("[VERIFY] Auditor failed")
+        await store.update_contract(row, status=ContractStatus.REJECTED.value)
+        raise HTTPException(502, detail=f"Agent 3 (Auditor) failed: {exc}") from exc
 
-    append_verification_log(
+    await store.append_verification_log(
         body.contract_id,
         {
-            "agent": "auditor",
-            "step": "consensus_review",
-            "status": "completed",
+            "agent": "auditor", "step": "consensus_review", "status": "completed",
             "detail": auditor_output.summary,
             "inference_id": auditor_inference_id,
             "score": auditor_output.consensus_score_percent,
             "verdict": auditor_output.verdict.value,
         },
     )
-    pipeline.append(
-        AgentStepLog(
-            agent="auditor",
-            step="consensus_review",
-            status="completed",
-            detail=auditor_output.summary,
-            inference_id=auditor_inference_id,
-            timestamp=_utcnow(),
-        )
-    )
+    pipeline.append(AgentStepLog(
+        agent="auditor", step="consensus_review", status="completed",
+        detail=auditor_output.summary, inference_id=auditor_inference_id,
+    ))
 
     final_status = (
         ContractStatus.APPROVED
@@ -193,16 +141,17 @@ async def submit_work(
     )
     payment_pct = auditor_output.consensus_score_percent if final_status == ContractStatus.APPROVED else 0.0
 
-    record["status"] = final_status.value
-    record["updated_at"] = _utcnow()
-    record["last_verification"] = {
-        "validator": validator_output.model_dump(),
-        "auditor": auditor_output.model_dump(),
-        "on_chain_audit_id": on_chain_record["audit_id"],
-    }
-    contracts_db[body.contract_id] = record
+    await store.update_contract(
+        row,
+        status=final_status.value,
+        last_verification={
+            "validator": validator_output.model_dump(),
+            "auditor": auditor_output.model_dump(),
+            "on_chain_audit_id": on_chain_record["audit_id"],
+        },
+    )
 
-    logger.info("[VERIFY] Pipeline complete | verdict=%s | payment=%s%%", final_status.value, payment_pct)
+    logger.info("[VERIFY] Complete | verdict=%s | payment=%s%%", final_status.value, payment_pct)
 
     return VerificationResponse(
         contract_id=body.contract_id,
@@ -218,26 +167,19 @@ async def submit_work(
 @router.get("/status/{contract_id}", response_model=VerificationStatusResponse)
 async def verification_status(
     contract_id: str,
-    user: UserSchema = Depends(get_current_user),
+    user: Annotated[UserSchema, Depends(get_current_user)],
+    store: Annotated[NexusStore, Depends(get_store)],
 ) -> VerificationStatusResponse:
-    """Live audit tracking — agent steps and on-chain records for dashboard."""
-    record = contracts_db.get(contract_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Contract not found")
+    row = await store.get_contract(contract_id)
+    if not row:
+        raise HTTPException(404, "Contract not found")
+    _authorize_contract_access(user, row)
 
-    if user.role == UserRole.COMPANY and record["company_chutes_id"] != user.chutes_id:
-        raise HTTPException(status_code=403, detail="Not your contract")
-    if user.role == UserRole.FREELANCER:
-        fid = record.get("freelancer_chutes_id")
-        if fid and fid != user.chutes_id:
-            raise HTTPException(status_code=403, detail="Not assigned to you")
-
-    logs = verification_logs_db.get(contract_id, [])
-    chain_records = [r for r in on_chain_audit_db if r.get("contract_id") == contract_id]
-
+    logs = await store.get_verification_logs(contract_id)
+    chain_records = await store.get_audit_logs(contract_id)
     return VerificationStatusResponse(
         contract_id=contract_id,
-        status=ContractStatus(record["status"]),
+        status=ContractStatus(row.status),
         logs=logs,
         on_chain_records=chain_records,
     )
@@ -246,17 +188,17 @@ async def verification_status(
 @router.get("/consensus-graph/{contract_id}")
 async def consensus_graph(
     contract_id: str,
-    user: UserSchema = Depends(get_current_user),
+    user: Annotated[UserSchema, Depends(get_current_user)],
+    store: Annotated[NexusStore, Depends(get_store)],
 ) -> dict:
-    """Chart data for live agent consensus visualization on dashboard."""
-    record = contracts_db.get(contract_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Contract not found")
+    row = await store.get_contract(contract_id)
+    if not row:
+        raise HTTPException(404, "Contract not found")
+    _authorize_contract_access(user, row)
 
-    logs = verification_logs_db.get(contract_id, [])
+    logs = await store.get_verification_logs(contract_id)
     graph = build_consensus_graph_data(logs)
-
-    last_ver = record.get("last_verification", {})
+    last_ver = row.last_verification or {}
     graph["verdict"] = last_ver.get("auditor", {}).get("verdict")
     graph["payment_recommendation_percent"] = (
         last_ver.get("auditor", {}).get("consensus_score_percent", 0)

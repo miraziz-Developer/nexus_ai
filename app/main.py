@@ -99,25 +99,41 @@ def create_app() -> FastAPI:
     @app.get("/health")
     async def health():
         client = get_chutes_client()
+        live_ready = (
+            settings.has_chutes_api_key
+            and not settings.use_mock_inference
+            and client.last_inference_mode != "mock"
+        )
         return {
             "status": "healthy",
             "app": settings.app_name,
             "version": "1.0.0",
+            "environment": settings.app_env,
             "database": settings.database_url.split("://")[0],
             "chutes": {
                 "inference_url": settings.chutes_inference_url,
                 "has_api_key": settings.has_chutes_api_key,
                 "mock_mode": settings.use_mock_inference,
-                "fallback_on_error": settings.chutes_fallback_on_error,
+                "fallback_on_error": settings.allow_chutes_fallback,
                 "last_inference_mode": client.last_inference_mode,
                 "fallback_count": client.fallback_count,
                 "architect_model": settings.architect_model,
+                "production_ready": live_ready and client.fallback_count == 0,
             },
             "agents": ["architect", "validator", "auditor"],
             "features": {
                 "persistent_db": True,
-                "github_analysis": True,
+                "github_metadata_analysis": True,
                 "multi_agent_consensus": True,
+                "chutes_live_inference": settings.has_chutes_api_key and not settings.use_mock_inference,
+                "oauth_configured": bool(settings.chutes_oauth_client_id),
+                "payment_escrow": False,
+                "blockchain_audit": False,
+            },
+            "honesty": {
+                "auth": "local_register_login",
+                "audit_trail": "sqlite_sha256_not_blockchain",
+                "kpi_metrics": "llm_plus_github_metadata_self_reported_latency",
             },
         }
 

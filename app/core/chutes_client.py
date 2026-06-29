@@ -139,7 +139,7 @@ class ChutesClient:
         except httpx.HTTPStatusError as exc:
             body = exc.response.text
             logger.error("[%s] Chutes HTTP %s: %s", agent_name, exc.response.status_code, body)
-            if self.settings.chutes_fallback_on_error and self._should_fallback(
+            if self.settings.allow_chutes_fallback and self._should_fallback(
                 exc.response.status_code, body
             ):
                 return await self._return_mock(
@@ -156,7 +156,7 @@ class ChutesClient:
             ) from exc
         except httpx.RequestError as exc:
             logger.error("[%s] Chutes request error: %s", agent_name, exc)
-            if self.settings.chutes_fallback_on_error:
+            if self.settings.allow_chutes_fallback:
                 return await self._return_mock(
                     agent_name, model, messages, reason="network_error", inference_id=inference_id
                 )
@@ -372,6 +372,21 @@ class ChutesClient:
             return response.json()
         except httpx.HTTPError as exc:
             raise ChutesClientError(f"OAuth token exchange failed: {exc}") from exc
+
+
+def inference_meta(response: dict[str, Any]) -> dict[str, Any]:
+    """Extract whether a Chutes response was live or mock/fallback."""
+    is_mock = bool(response.get("_mock"))
+    return {
+        "mode": "mock" if is_mock else "chutes_live",
+        "mock": is_mock,
+        "fallback_reason": response.get("_fallback_reason"),
+        "inference_id": response.get("id"),
+    }
+
+
+def is_mock_inference_id(inference_id: str | None) -> bool:
+    return bool(inference_id and inference_id.startswith("mock-chutes-"))
 
 
 _chutes_client: ChutesClient | None = None

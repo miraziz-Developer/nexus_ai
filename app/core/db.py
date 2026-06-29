@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config import get_settings
@@ -17,11 +18,26 @@ def get_engine():
     global _engine
     if _engine is None:
         settings = get_settings()
+        connect_args: dict = {}
+        if settings.database_url.startswith("sqlite"):
+            connect_args["timeout"] = 30
         _engine = create_async_engine(
             settings.database_url,
-            echo=settings.app_env == "development",
+            echo=settings.db_echo,
             pool_pre_ping=True,
+            connect_args=connect_args,
         )
+
+        if settings.database_url.startswith("sqlite"):
+
+            @event.listens_for(_engine.sync_engine, "connect")
+            def _set_sqlite_pragma(dbapi_conn, _connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=30000")
+                cursor.execute("PRAGMA synchronous=NORMAL")
+                cursor.close()
+
     return _engine
 
 
@@ -49,6 +65,9 @@ async def init_db() -> None:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        if settings.database_url.startswith("sqlite"):
+            await conn.execute(text("PRAGMA journal_mode=WAL"))
+            await conn.execute(text("PRAGMA busy_timeout=30000"))
 
 
 async def get_session() -> AsyncGenerator[AsyncSession, None]:

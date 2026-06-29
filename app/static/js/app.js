@@ -45,74 +45,172 @@ async function api(path, opts = {}) {
   return data;
 }
 
+function parseApiError(data, fallback = 'Request failed') {
+  const detail = data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join(', ');
+  return fallback;
+}
+
 // ── Auth ──────────────────────────────────────────────────────────────────
+
+function showAuthTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('login-form').classList.toggle('hidden', !isLogin);
+  document.getElementById('register-form').classList.toggle('hidden', isLogin);
+
+  document.getElementById('tab-login').className = isLogin
+    ? 'auth-tab flex-1 py-2.5 rounded-lg text-sm font-medium bg-nexus-600/30 text-nexus-200 border border-nexus-500/30'
+    : 'auth-tab flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200';
+  document.getElementById('tab-register').className = !isLogin
+    ? 'auth-tab flex-1 py-2.5 rounded-lg text-sm font-medium bg-emerald-600/20 text-emerald-200 border border-emerald-500/30'
+    : 'auth-tab flex-1 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-200';
+}
+
+document.getElementById('tab-login').addEventListener('click', () => showAuthTab('login'));
+document.getElementById('tab-register').addEventListener('click', () => showAuthTab('register'));
+document.getElementById('goto-register').addEventListener('click', () => showAuthTab('register'));
+document.getElementById('goto-login').addEventListener('click', () => showAuthTab('login'));
+
+function saveSession(data) {
+  token = data.access_token;
+  user = data.user;
+  localStorage.setItem('nexus_token', token);
+  localStorage.setItem('nexus_user', JSON.stringify(user));
+  enterDashboard();
+  showToast(`Welcome, ${user.name}! (${user.role})`, 'success');
+}
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const body = {
-    chutes_id: document.getElementById('chutes-id').value.trim(),
-    name: document.getElementById('display-name').value.trim(),
-    role: document.getElementById('user-role').value,
-  };
+  const btn = document.getElementById('login-btn');
+  const loading = document.getElementById('login-loading');
+  if (btn?.disabled) return;
+
+  const body = { chutes_id: document.getElementById('login-chutes-id').value.trim() };
   try {
-    const data = await fetch(`${API}/auth/signin`, {
+    if (btn) btn.disabled = true;
+    if (loading) loading.classList.remove('hidden');
+
+    const res = await fetch(`${API}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }).then(r => r.json());
-
-    if (data.detail) throw new Error(data.detail);
-
-    token = data.access_token;
-    user = data.user;
-    localStorage.setItem('nexus_token', token);
-    localStorage.setItem('nexus_user', JSON.stringify(user));
-    enterDashboard();
-    showToast(`Welcome, ${user.name}!`, 'success');
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseApiError(data, `Sign in failed (${res.status})`));
+    saveSession(data);
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (loading) loading.classList.add('hidden');
+  }
+});
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('register-btn');
+  const loading = document.getElementById('register-loading');
+  if (btn?.disabled) return;
+
+  const body = {
+    chutes_id: document.getElementById('register-chutes-id').value.trim(),
+    name: document.getElementById('register-name').value.trim(),
+    role: document.getElementById('register-role').value,
+  };
+  try {
+    if (btn) btn.disabled = true;
+    if (loading) loading.classList.remove('hidden');
+
+    const res = await fetch(`${API}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(parseApiError(data, `Registration failed (${res.status})`));
+    saveSession(data);
+  } catch (err) {
+    showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (loading) loading.classList.add('hidden');
   }
 });
 
 document.getElementById('logout-btn').addEventListener('click', () => {
-  localStorage.removeItem('nexus_token');
-  localStorage.removeItem('nexus_user');
-  token = null;
-  user = null;
-  document.getElementById('dashboard').classList.add('hidden');
-  document.getElementById('login-screen').classList.remove('hidden');
+  clearSession();
 });
 
 function enterDashboard() {
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('dashboard').classList.remove('hidden');
 
+  const isCompany = user.role === 'company';
   document.getElementById('user-name').textContent = user.name;
   document.getElementById('user-chutes-id').textContent = user.chutes_id;
   document.getElementById('avatar-initial').textContent = user.name[0].toUpperCase();
   document.getElementById('sidebar-role').textContent =
-    user.role === 'company' ? '🏢 Company Dashboard' : '👨‍💻 Freelancer Dashboard';
+    isCompany ? '🏢 Company Dashboard' : '👨‍💻 Freelancer Dashboard';
 
-  const isCompany = user.role === 'company';
+  const sidebar = document.querySelector('#dashboard aside');
+  sidebar?.classList.toggle('border-emerald-500/30', !isCompany);
+  sidebar?.classList.toggle('border-surface-border', isCompany);
+
   document.getElementById('create-contract-panel').classList.toggle('hidden', !isCompany);
   document.getElementById('submit-work-panel').classList.toggle('hidden', isCompany);
 
   loadHealth();
-  loadContracts();
+  loadContracts().then(() => {
+    switchView(isCompany ? 'overview' : 'contracts');
+  });
 }
+
+function clearSession() {
+  localStorage.removeItem('nexus_token');
+  localStorage.removeItem('nexus_user');
+  token = null;
+  user = null;
+  document.getElementById('dashboard').classList.add('hidden');
+  document.getElementById('login-screen').classList.remove('hidden');
+}
+
+window.addEventListener('storage', (e) => {
+  if (e.key === 'nexus_token' && !e.newValue && token) {
+    clearSession();
+    showToast('Signed out in another tab', 'info');
+  }
+});
 
 // ── Health / Mock badge ───────────────────────────────────────────────────
 
 async function loadHealth() {
   try {
     const h = await fetch('/health').then(r => r.json());
-    const badge = document.getElementById('mock-badge');
+    const mockBadge = document.getElementById('mock-badge');
+    const liveBadge = document.getElementById('live-badge');
     const c = h.chutes || {};
+    const isLive = c.has_api_key && !c.mock_mode && c.production_ready !== false
+      && c.last_inference_mode !== 'mock' && (c.fallback_count || 0) === 0;
+
     if (c.mock_mode || c.last_inference_mode === 'mock' || c.fallback_count > 0) {
-      badge.textContent = c.fallback_count > 0
+      mockBadge.textContent = c.fallback_count > 0
         ? `Chutes Fallback (${c.fallback_count})`
-        : 'Mock Chutes Mode';
-      badge.classList.remove('hidden');
+        : 'Mock / Demo Mode';
+      mockBadge.classList.remove('hidden');
+    } else {
+      mockBadge.classList.add('hidden');
+    }
+
+    if (liveBadge) {
+      if (isLive || (c.has_api_key && !c.mock_mode)) {
+        liveBadge.textContent = c.production_ready ? '● Chutes Live' : '● Chutes Ready';
+        liveBadge.className = 'px-3 py-1 rounded-full text-xs bg-green-500/10 text-green-400 border border-green-500/20 agent-pulse';
+      } else {
+        liveBadge.textContent = '● Demo Mode';
+        liveBadge.className = 'px-3 py-1 rounded-full text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20';
+      }
     }
   } catch (_) {}
 }
@@ -147,6 +245,13 @@ function renderContracts() {
       active: 'text-nexus-400 bg-nexus-500/10 border-nexus-500/20',
     }[c.status] || 'text-gray-400 bg-gray-500/10 border-gray-500/20';
 
+    const mode = c.architect_inference_mode;
+    const modeBadge = mode === 'mock'
+      ? '<span class="px-2 py-0.5 rounded text-xs bg-amber-500/10 text-amber-400">mock inference</span>'
+      : mode === 'chutes_live'
+        ? '<span class="px-2 py-0.5 rounded text-xs bg-green-500/10 text-green-400">chutes live</span>'
+        : '';
+
     return `
       <div class="p-4 rounded-xl bg-nexus-950/30 border border-surface-border hover:border-nexus-500/30 transition cursor-pointer contract-card" data-id="${c.contract_id}">
         <div class="flex items-start justify-between">
@@ -154,7 +259,10 @@ function renderContracts() {
             <h4 class="font-medium">${kpi?.task_title || 'Pending KPI Generation'}</h4>
             <p class="text-xs text-gray-500 mt-1">${c.contract_id.slice(0, 8)}… · ${new Date(c.created_at).toLocaleDateString()}</p>
           </div>
-          <span class="px-2 py-1 rounded-lg text-xs border ${statusColor}">${c.status}</span>
+          <div class="flex flex-col items-end gap-1">
+            <span class="px-2 py-1 rounded-lg text-xs border ${statusColor}">${c.status}</span>
+            ${modeBadge}
+          </div>
         </div>
         ${kpi ? `
           <div class="mt-3 flex flex-wrap gap-2">
@@ -221,14 +329,20 @@ async function selectContract(id) {
 
 document.getElementById('create-contract-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const btn = document.getElementById('create-contract-btn');
+  const loading = document.getElementById('create-contract-loading');
+  if (btn?.disabled) return;
+
   const body = {
     raw_task_description: document.getElementById('task-description').value.trim(),
     freelancer_chutes_id: document.getElementById('freelancer-id').value.trim() || null,
     budget_usd: parseFloat(document.getElementById('budget').value) || null,
   };
   try {
-    showToast('Agent 1 (Architect) running on Chutes…', 'info');
-    document.getElementById('agent1-status').textContent = 'Status: running…';
+    if (btn) btn.disabled = true;
+    if (loading) loading.classList.remove('hidden');
+    showToast('Agent 1 (Architect) running on Chutes… 30–60 sec', 'info');
+    document.getElementById('agent1-status').textContent = 'Status: running on Chutes…';
     const contract = await api('/contracts/create', { method: 'POST', body: JSON.stringify(body) });
     document.getElementById('agent1-status').textContent = `Status: completed ✓ (${contract.architect_inference_id?.slice(0, 16)}…)`;
     showToast(`KPI generated: ${contract.kpi_blueprint.task_title}`, 'success');
@@ -238,6 +352,9 @@ document.getElementById('create-contract-form')?.addEventListener('submit', asyn
   } catch (err) {
     document.getElementById('agent1-status').textContent = 'Status: failed';
     showToast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+    if (loading) loading.classList.add('hidden');
   }
 });
 
@@ -298,7 +415,7 @@ function renderConsensusChart(graph) {
 }
 
 function renderRadarChart(graph) {
-  const scores = graph.scores || [100, 88, 95];
+  const scores = graph.scores || [0, 0, 0];
   const opts = {
     series: [{ name: 'KPI', data: scores }],
     chart: { type: 'radar', height: 280, toolbar: { show: false }, background: 'transparent' },
@@ -395,7 +512,7 @@ function switchView(view) {
     overview: ['Overview', 'Multi-agent KPI verification dashboard'],
     contracts: ['Contracts', user?.role === 'company' ? 'Create and manage smart tasks' : 'View missions and submit work'],
     agents: ['Agent Pipeline', 'Chutes decentralized multi-agent consensus'],
-    audit: ['On-Chain Audit', 'Immutable verification records'],
+    audit: ['Verification Audit', 'SHA-256 hashed consensus records'],
   };
   const [title, sub] = titles[view] || ['', ''];
   document.getElementById('page-title').textContent = title;
@@ -408,11 +525,20 @@ document.querySelectorAll('.nav-btn').forEach(btn => {
 
 // ── Init ──────────────────────────────────────────────────────────────────
 
-if (token && user) {
-  enterDashboard();
-} else {
+async function initApp() {
+  if (token && user) {
+    try {
+      await api('/contracts/list');
+      enterDashboard();
+      return;
+    } catch (_) {
+      clearSession();
+    }
+  }
   document.getElementById('login-screen').classList.remove('hidden');
 }
+
+initApp();
 
 // Default charts on overview
 renderConsensusChart({ labels: ['Architect', 'Validator', 'Auditor'], scores: [0, 0, 0] });

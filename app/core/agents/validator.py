@@ -6,7 +6,7 @@ import json
 import logging
 from typing import Any
 
-from app.core.chutes_client import ChutesClientError, get_chutes_client
+from app.core.chutes_client import ChutesClientError, get_chutes_client, inference_meta
 from app.core.config import get_settings
 from app.core.github_client import analyze_repository
 from app.models.schemas import KPIBlueprint, SubmitWorkRequest, ValidatorOutput
@@ -16,12 +16,17 @@ logger = logging.getLogger("aether.agent.validator")
 SYSTEM_PROMPT = """You are Agent 2: The Code/Artifact Validator for Aether Nexus AI.
 You evaluate freelancer work submissions against a strict KPI contract.
 
-Analyze the submission (GitHub URL, artifact description, reported metrics) and score it.
+IMPORTANT RULES:
+- Treat reported_test_coverage_percent and reported_response_time_ms as SELF-REPORTED unless GitHub analysis confirms repo structure.
+- Weight github_analysis heavily: primary_language, has_test_indicators, repo availability.
+- If github_analysis.available is false, cap overall_score_percent at 70 and note missing evidence.
+- If has_test_indicators is false, reduce test_coverage score even if freelancer claims high coverage.
+- Never give 100% test_coverage score without github evidence of tests.
 
 Respond with ONLY valid JSON (no markdown):
 {
-  "test_coverage_percent": <measured or reported coverage>,
-  "response_time_ms": <measured or reported latency>,
+  "test_coverage_percent": <number>,
+  "response_time_ms": <number>,
   "language_detected": "<detected language>",
   "kpi_scores": {
     "test_coverage": <0-100 score>,
@@ -32,7 +37,7 @@ Respond with ONLY valid JSON (no markdown):
   "findings": ["finding 1", "finding 2", ...]
 }
 
-Score each KPI: 100 if requirement met, proportionally less if not.
+Score each KPI: 100 if requirement met with evidence, proportionally less if not.
 overall_score_percent = average of kpi_scores values."""
 
 
@@ -41,7 +46,7 @@ async def run_validator(
     submission: SubmitWorkRequest,
 ) -> tuple[ValidatorOutput, str | None]:
     """
-    Execute Agent 2 on Chutes — on-chain inference for artifact validation.
+    Execute Agent 2 on Chutes — validates artifacts with GitHub enrichment.
     Returns (ValidatorOutput, inference_id).
     """
     settings = get_settings()
@@ -86,20 +91,70 @@ async def run_validator(
         logger.error("[VALIDATOR] Chutes error: %s", exc)
         raise
 
-    inference_id = response.get("id")
+    meta = inference_meta(response)
+    inference_id = meta["inference_id"]
     content = response["choices"][0]["message"]["content"]
-    logger.info("[VALIDATOR] Inference complete | id=%s", inference_id)
+    logger.info("[VALIDATOR] Inference complete | id=%s mode=%s", inference_id, meta["mode"])
 
     parsed = _parse_validator_response(content)
-    output = ValidatorOutput(**parsed, inference_id=inference_id)
+    output = ValidatorOutput(**parsed, inference_id=inference_id, inference_mode=meta["mode"])
+    output = _apply_evidence_rules(output, submission, github_analysis, contract_kpi)
 
     logger.info("[VALIDATOR] Overall score: %s%%", output.overall_score_percent)
     for finding in output.findings:
         logger.info("[VALIDATOR]   → %s", finding)
+    for note in output.evidence_notes:
+        logger.info("[VALIDATOR]   [evidence] %s", note)
     logger.info("[VALIDATOR] Agent 2 complete ✓")
     logger.info("═" * 60)
 
     return output, inference_id
+
+
+def _apply_evidence_rules(
+    output: ValidatorOutput,
+    submission: SubmitWorkRequest,
+    github_analysis: dict[str, Any],
+    contract_kpi: KPIBlueprint,
+) -> ValidatorOutput:
+    """Deterministic post-processing — don't trust self-reported metrics alone."""
+    evidence_notes = list(output.evidence_notes)
+    findings = list(output.findings)
+    scores = dict(output.kpi_scores)
+    required_lang = contract_kpi.required_metrics.strict_language.lower()
+
+    if not submission.github_url:
+        evidence_notes.append("No GitHub URL — coverage/latency are self-reported only")
+        scores["test_coverage"] = min(scores.get("test_coverage", 0), 60.0)
+    elif not github_analysis.get("available"):
+        reason = github_analysis.get("reason", "unknown")
+        evidence_notes.append(f"GitHub repo not verified ({reason})")
+        scores["test_coverage"] = min(scores.get("test_coverage", 0), 65.0)
+    else:
+        evidence_notes.append(f"GitHub verified: {github_analysis.get('full_name')}")
+        if not github_analysis.get("has_test_indicators"):
+            evidence_notes.append("No test suite indicators in repository root")
+            scores["test_coverage"] = min(scores.get("test_coverage", 0), 75.0)
+            findings.append("Repository lacks visible test infrastructure (tests/, pytest.ini, CI)")
+        primary = (github_analysis.get("primary_language") or "").lower()
+        if primary and required_lang and primary != required_lang:
+            scores["language_compliance"] = min(scores.get("language_compliance", 0), 50.0)
+            findings.append(f"GitHub primary language ({primary}) ≠ contract requirement ({required_lang})")
+
+    if submission.reported_test_coverage_percent is not None:
+        evidence_notes.append("Coverage submitted by freelancer — not independently measured")
+    if submission.reported_response_time_ms is not None:
+        evidence_notes.append("Latency submitted by freelancer — not independently benchmarked")
+
+    overall = sum(scores.values()) / len(scores) if scores else 0.0
+    return output.model_copy(
+        update={
+            "kpi_scores": scores,
+            "overall_score_percent": round(overall, 2),
+            "findings": findings,
+            "evidence_notes": evidence_notes,
+        }
+    )
 
 
 def _parse_validator_response(content: str) -> dict[str, Any]:

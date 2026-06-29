@@ -7,7 +7,7 @@ Upload these PNG files to your Devpost **Image Gallery** (3:2 ratio, 1920×1280)
 | `01-dashboard-overview.png` | Overview with ApexCharts consensus + radar | *Aether Nexus dashboard — live KPI analytics* |
 | `02-company-create-contract.png` | Company creating smart task (Agent 1) | *Company creates plain-English task → Agent 1 generates JSON KPIs* |
 | `03-agent-consensus-pipeline.png` | Multi-agent activity feed | *Agents 2+3 consensus pipeline on Chutes compute* |
-| `04-onchain-audit-trail.png` | Immutable on-chain audit records | *Tamper-proof audit trail with SHA-256 hash* |
+| `04-verification-audit-trail.png` | Verification audit records | *Tamper-evident audit trail with SHA-256 hash* |
 
 ## Regenerate screenshots
 

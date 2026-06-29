@@ -41,11 +41,22 @@ class UserSchema(BaseModel):
 
 
 class SignInRequest(BaseModel):
-    """Mock Sign In with Chutes — production uses OAuth PKCE flow."""
+    """Legacy alias — use LoginRequest."""
+    chutes_id: str = Field(..., min_length=3, description="Chutes user ID or wallet address")
+    role: UserRole | None = None
+    name: str | None = None
+    email: str | None = None
+
+
+class RegisterRequest(BaseModel):
     chutes_id: str = Field(..., min_length=3, description="Chutes user ID or wallet address")
     role: UserRole
     name: str = Field(..., min_length=1)
     email: str | None = None
+
+
+class LoginRequest(BaseModel):
+    chutes_id: str = Field(..., min_length=3, description="Chutes user ID or wallet address")
 
 
 class OAuthCallbackRequest(BaseModel):
@@ -97,6 +108,7 @@ class ContractResponse(BaseModel):
     kpi_blueprint: KPIBlueprint | None = None
     budget_usd: float | None = None
     architect_inference_id: str | None = None
+    architect_inference_mode: str | None = None
     created_at: datetime
     updated_at: datetime
     last_verification: dict[str, Any] | None = None
@@ -135,6 +147,8 @@ class ValidatorOutput(BaseModel):
     overall_score_percent: float
     findings: list[str]
     inference_id: str | None = None
+    inference_mode: str | None = None
+    evidence_notes: list[str] = Field(default_factory=list)
 
 
 class AuditorOutput(BaseModel):
@@ -144,6 +158,7 @@ class AuditorOutput(BaseModel):
     approved_metrics: dict[str, bool]
     audit_hash: str
     inference_id: str | None = None
+    inference_mode: str | None = None
 
 
 class VerificationResponse(BaseModel):
@@ -152,8 +167,10 @@ class VerificationResponse(BaseModel):
     agent_pipeline: list[AgentStepLog]
     validator_output: ValidatorOutput | None = None
     auditor_output: AuditorOutput | None = None
-    on_chain_audit_id: str | None = None
+    audit_record_id: str | None = None
+    on_chain_audit_id: str | None = None  # alias kept for clients
     payment_recommendation_percent: float = 0.0
+    inference_summary: dict[str, str] = Field(default_factory=dict)
 
 
 class VerificationStatusResponse(BaseModel):

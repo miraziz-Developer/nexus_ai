@@ -26,7 +26,7 @@ async def main() -> int:
     print(f"Model         : {settings.architect_model}")
     print(f"Has API key   : {settings.has_chutes_api_key}")
     print(f"Mock mode     : {settings.use_mock_inference}")
-    print(f"Fallback      : {settings.chutes_fallback_on_error}")
+    print(f"Fallback      : {settings.allow_chutes_fallback}")
     print()
 
     if not settings.has_chutes_api_key:
@@ -56,7 +56,7 @@ async def main() -> int:
             print(f"   Response: {content}")
             return 0
 
-        if reason.startswith("api_error") and settings.chutes_fallback_on_error:
+        if reason.startswith("api_error") and settings.allow_chutes_fallback:
             print(f"⚠️  Chutes API key valid but live call failed ({reason})")
             print(f"   Fallback mock used | id={inference_id}")
             print("   → Top up balance at chutes.ai, then re-run this script.")

@@ -58,14 +58,22 @@ async def analyze_repository(github_url: str | None) -> dict[str, Any]:
             languages_resp = await client.get(f"{api}/languages", headers=headers)
             languages = languages_resp.json() if languages_resp.status_code == 200 else {}
 
-            # Check for test indicators in root contents
             has_tests = False
+            has_ci = False
             contents_resp = await client.get(f"{api}/contents", headers=headers)
+            root_names: set[str] = set()
             if contents_resp.status_code == 200:
-                names = {item.get("name", "").lower() for item in contents_resp.json()}
-                has_tests = bool(
-                    names & {"tests", "test", "pytest.ini", "pyproject.toml", ".github"}
-                )
+                root_names = {item.get("name", "").lower() for item in contents_resp.json()}
+
+            has_tests = bool(
+                root_names
+                & {"tests", "test", "pytest.ini", "pyproject.toml", ".github", "tox.ini", "setup.cfg"}
+            )
+            if ".github" in root_names:
+                wf_resp = await client.get(f"{api}/contents/.github/workflows", headers=headers)
+                if wf_resp.status_code == 200:
+                    has_ci = len(wf_resp.json()) > 0
+                    has_tests = True
 
         primary_language = data.get("language") or (max(languages, key=languages.get) if languages else None)
         stars = data.get("stargazers_count", 0)
@@ -82,6 +90,7 @@ async def analyze_repository(github_url: str | None) -> dict[str, Any]:
             "stars": stars,
             "open_issues": open_issues,
             "has_test_indicators": has_tests,
+            "has_ci_workflows": has_ci,
             "default_branch": data.get("default_branch"),
             "updated_at": data.get("updated_at"),
             "html_url": data.get("html_url"),

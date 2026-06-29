@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.api.deps import get_current_user, require_role
 from app.core.agents.architect import run_architect
+from app.core.chutes_client import is_mock_inference_id
 from app.models.schemas import (
     ContractListResponse,
     ContractResponse,
@@ -38,6 +39,7 @@ async def create_contract(
         {"agent": "system", "step": "contract_created", "status": "started",
          "detail": "Company submitted raw task description"},
     )
+    await store.release_lock()
 
     try:
         kpi_blueprint, inference_id = await run_architect(body.raw_task_description)
@@ -49,12 +51,14 @@ async def create_contract(
         )
         raise HTTPException(status_code=502, detail=f"Agent 1 (Architect) failed: {exc}") from exc
 
+    inference_mode = "mock" if is_mock_inference_id(inference_id) else "chutes_live"
     await store.append_verification_log(
         contract_id,
         {
             "agent": "architect", "step": "kpi_generation", "status": "completed",
-            "detail": f"KPI blueprint: {kpi_blueprint.task_title}",
-            "inference_id": inference_id, "score": 100,
+            "detail": f"KPI blueprint: {kpi_blueprint.task_title} [{inference_mode}]",
+            "inference_id": inference_id,
+            "inference_mode": inference_mode,
         },
     )
 

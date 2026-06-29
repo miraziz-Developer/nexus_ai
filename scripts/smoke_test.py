@@ -36,6 +36,26 @@ def request(method: str, path: str, token: str | None = None, body: dict | None 
         return json.loads(resp.read())
 
 
+def auth_user(chutes_id: str, role: str, name: str) -> dict:
+    """Register new user or login if already exists."""
+    data = json.dumps({
+        "chutes_id": chutes_id, "role": role, "name": name,
+    }).encode()
+    req = urllib.request.Request(
+        f"{BASE}/api/v1/auth/register",
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise
+    return request("POST", "/api/v1/auth/login", body={"chutes_id": chutes_id})
+
+
 def main() -> int:
     print("=" * 60)
     print("Aether Nexus AI — Full Smoke Test")
@@ -58,16 +78,12 @@ def main() -> int:
     # 2. Auth
     print("\n[2] Authentication")
     try:
-        co = request("POST", "/api/v1/auth/signin", body={
-            "chutes_id": "smoke_acme", "role": "company", "name": "Smoke Acme",
-        })
-        fr = request("POST", "/api/v1/auth/signin", body={
-            "chutes_id": "smoke_jane", "role": "freelancer", "name": "Smoke Jane",
-        })
+        co = auth_user("smoke_acme", "company", "Smoke Acme")
+        fr = auth_user("smoke_jane", "freelancer", "Smoke Jane")
         co_token = co["access_token"]
         fr_token = fr["access_token"]
-        ok("Company signin", co["user"]["chutes_id"])
-        ok("Freelancer signin", fr["user"]["chutes_id"])
+        ok("Company auth", co["user"]["chutes_id"])
+        ok("Freelancer auth", fr["user"]["chutes_id"])
     except Exception as exc:
         fail("Auth", str(exc))
         return 1

@@ -23,17 +23,27 @@ class Settings(BaseSettings):
 
     chutes_oauth_client_id: str = ""
     chutes_oauth_client_secret: str = ""
-    chutes_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/callback"
+    chutes_oauth_redirect_uri: str = "http://localhost:8000/api/v1/auth/oauth/callback"
 
     architect_model: str = "Qwen/Qwen3-32B-TEE"
     validator_model: str = "Qwen/Qwen3-32B-TEE"
     auditor_model: str = "Qwen/Qwen3-32B-TEE"
 
-    mock_chutes_when_no_key: bool = True
-    chutes_fallback_on_error: bool = True
+    mock_chutes_when_no_key: bool = False
+    chutes_fallback_on_error: bool = False
 
     database_url: str = "sqlite+aiosqlite:///./data/nexus.db"
     github_token: str = ""
+    db_echo: bool = False
+
+    @property
+    def is_development(self) -> bool:
+        return self.app_env.lower() in ("development", "dev", "local")
+
+    @property
+    def allow_chutes_fallback(self) -> bool:
+        """Fallback mock only when explicitly enabled (demo/dev)."""
+        return self.chutes_fallback_on_error
 
     @property
     def cors_origin_list(self) -> list[str]:

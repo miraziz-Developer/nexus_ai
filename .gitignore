@@ -12,3 +12,12 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Demo video build artifacts (regenerate with scripts/record_demo_video.py)
+docs/demo_video/frames/
+docs/demo_video/*.mp4
+docs/demo_video/*.webm
+docs/demo_video/*.srt
+docs/demo_video/debug*.png
+docs/demo_video/frames.txt
+docs/demo_video/**/concat.txt

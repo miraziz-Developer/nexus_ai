@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.chutes_client import is_mock_inference_id
 from app.models.orm import AuditLogRow, ContractRow, SessionRow, UserRow, VerificationLogRow
 from app.models.schemas import ContractResponse, ContractStatus, UserRole, UserSchema
 
@@ -27,6 +28,26 @@ class NexusStore:
         self.session = session
 
     # ── Users & sessions ─────────────────────────────────────────────────────
+
+    async def release_lock(self) -> None:
+        """Commit pending writes before long external API calls (avoids SQLite lock)."""
+        await self.session.commit()
+
+    async def create_user(
+        self,
+        *,
+        chutes_id: str,
+        role: str,
+        name: str,
+        email: str | None = None,
+    ) -> UserRow:
+        existing = await self.session.get(UserRow, chutes_id)
+        if existing is not None:
+            raise ValueError("Chutes ID already registered")
+        row = UserRow(chutes_id=chutes_id, role=role, name=name, email=email)
+        self.session.add(row)
+        await self.session.flush()
+        return row
 
     async def upsert_user(
         self,
@@ -106,7 +127,11 @@ class NexusStore:
         }
 
     def contract_to_response(self, row: ContractRow) -> ContractResponse:
-        return ContractResponse(**self.contract_to_dict(row))
+        data = self.contract_to_dict(row)
+        iid = data.get("architect_inference_id")
+        if iid:
+            data["architect_inference_mode"] = "mock" if is_mock_inference_id(iid) else "chutes_live"
+        return ContractResponse(**data)
 
     async def create_contract(self, **fields: Any) -> ContractRow:
         contract_id = fields.pop("contract_id", None) or new_id()

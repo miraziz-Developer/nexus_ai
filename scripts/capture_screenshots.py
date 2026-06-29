@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -25,13 +26,20 @@ def api(method: str, path: str, token: str | None = None, body: dict | None = No
         return json.loads(resp.read())
 
 
+def auth_user(chutes_id: str, role: str, name: str) -> dict:
+    try:
+        return api("POST", "/api/v1/auth/register", body={
+            "chutes_id": chutes_id, "role": role, "name": name,
+        })
+    except urllib.error.HTTPError as exc:
+        if exc.code != 409:
+            raise
+    return api("POST", "/api/v1/auth/login", body={"chutes_id": chutes_id})
+
+
 def seed_via_api() -> tuple[str, dict, str]:
-    co = api("POST", "/api/v1/auth/signin", body={
-        "chutes_id": "acme_corp", "role": "company", "name": "Acme Corp",
-    })
-    fr = api("POST", "/api/v1/auth/signin", body={
-        "chutes_id": "jane_dev", "role": "freelancer", "name": "Jane Dev",
-    })
+    co = auth_user("acme_corp", "company", "Acme Corp")
+    fr = auth_user("jane_dev", "freelancer", "Jane Dev")
     contract = api("POST", "/api/v1/contracts/create", co["access_token"], {
         "raw_task_description": (
             "We need a FastAPI backend with test coverage at least 85% "
@@ -97,7 +105,7 @@ def main() -> None:
 
         nav("audit")
         time.sleep(1)
-        page.screenshot(path=str(OUT / "04-onchain-audit-trail.png"))
+        page.screenshot(path=str(OUT / "04-verification-audit-trail.png"))
 
         browser.close()
 

@@ -25,7 +25,7 @@
 [Company]  →  writes task + KPI in plain English
      │
      ▼
-[Agent 1: Architect]  →  Chutes on-chain inference  →  strict JSON KPI contract
+[Agent 1: Architect]  →  Chutes inference  →  strict JSON KPI contract
      │
      ▼
 [Freelancer]  →  submits GitHub repo / artifact + metrics
@@ -51,7 +51,7 @@ Unlike simple "one prompt → API wrapper" projects, we run **3 independent agen
 | Agent | Codename | Responsibility |
 |-------|----------|----------------|
 | **Agent 1** | The Legal/KPI Architect | Parses contract text → quantified JSON metrics (`min_test_coverage_percent`, `max_response_time_ms`, `strict_language`) |
-| **Agent 2** | The Code/Artifact Validator | Audits freelancer submission (GitHub, coverage, latency) via on-chain inference |
+| **Agent 2** | The Code/Artifact Validator | Audits freelancer submission (GitHub, coverage, latency) via Chutes inference |
 | **Agent 3** | The Auditor/Consensus Agent | Compares Agent 1+2 outputs → final **Approved/Rejected** + cryptographic audit hash |
 
 **Model:** `Qwen/Qwen3-32B-TEE` on `https://llm.chutes.ai/v1`
@@ -60,15 +60,15 @@ Unlike simple "one prompt → API wrapper" projects, we run **3 independent agen
 
 | Feature | Implementation |
 |---------|----------------|
-| **Sign In with Chutes** | `POST /api/v1/auth/signin` (demo) + OAuth 2.0 PKCE hooks (`/auth/oauth/authorize`, `/auth/oauth/callback`) |
-| **On-Chain Inference** | Every KPI check logged with Chutes `inference_id` — tamper-proof audit trail |
+| **Sign In with Chutes** | `POST /api/v1/auth/register` + `POST /api/v1/auth/login` (OAuth 2.0 PKCE hooks available) |
+| **Chutes Inference** | Every KPI check logged with Chutes `inference_id` — tamper-evident audit trail |
 | **Async Chutes Client** | `app/core/chutes_client.py` — full async/await HTTP engine to Chutes nodes |
 
 ### 3. Real Business Impact & Working MVP (25 pts)
 
 - **FastAPI** — fully async, robust exception handling, structured logging
 - **Role-based dual dashboard** — Company & Freelancer from one backend (`UserRole` enum)
-- **Premium Horizon-inspired UI** — live consensus charts (ApexCharts), agent activity feed, on-chain audit view
+- **Premium Horizon-inspired UI** — live consensus charts (ApexCharts), agent activity feed, verification audit view
 - **Production-ready architecture** — modular agents, clean API versioning, `.env` configuration
 
 ---
@@ -104,8 +104,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Step 1 — Company creates a smart contract
 
-1. Open dashboard → Sign in as **Company**
-   - `chutes_id`: `acme_corp` · `name`: `Acme Corp`
+1. Open dashboard → **Register** or **Sign In** as **Company**
+   - Register once: `chutes_id`: `acme_corp` · `name`: `Acme Corp` · role: Company
+   - Or sign in if already registered
 2. **Create Smart Task** — example input:
    ```
    We need a FastAPI backend with test coverage ≥ 85% and API response time < 200ms in Python
@@ -114,8 +115,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Step 2 — Freelancer submits work
 
-1. Sign in as **Freelancer** (incognito tab)
-   - `chutes_id`: `jane_dev` · `name`: `Jane Dev`
+1. **Register** or **Sign In** as **Freelancer** (use incognito for a second session)
+   - e.g. `chutes_id`: `jane_dev` · `name`: `Jane Dev`
 2. Select active contract → submit GitHub URL + metrics:
    - Coverage: `88%` · Latency: `150ms`
 3. **Agents 2 + 3** run consensus pipeline → e.g. **Approved @ 98.33%**
@@ -123,7 +124,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ### Step 3 — Review audit trail
 
 - **Agent Pipeline** tab — live step-by-step logs
-- **On-Chain Audit** tab — immutable verdict + SHA-256 audit hash
+- **Verification Audit** tab — verdict + SHA-256 audit hash
 
 ---
 
@@ -131,7 +132,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 | Method | Endpoint | Role | Description |
 |--------|----------|------|-------------|
-| `POST` | `/api/v1/auth/signin` | Any | Sign In with Chutes (session token) |
+| `POST` | `/api/v1/auth/register` | Any | Create account (Chutes ID + role) |
+| `POST` | `/api/v1/auth/login` | Any | Sign in (existing Chutes ID) |
+| `POST` | `/api/v1/auth/signin` | Any | Legacy alias for login |
 | `GET` | `/api/v1/auth/oauth/authorize` | Any | OAuth authorization URL |
 | `POST` | `/api/v1/auth/oauth/callback` | Any | OAuth code exchange |
 | `POST` | `/api/v1/contracts/create` | Company | Create task → triggers Agent 1 |
@@ -151,21 +154,30 @@ nexus_ai/
 ├── app/
 │   ├── main.py                     # FastAPI entry, CORS, static dashboard
 │   ├── api/v1/
-│   │   ├── auth.py                 # Sign In with Chutes
+│   │   ├── auth.py                 # Register / login / OAuth
 │   │   ├── contracts.py            # Contract CRUD + Agent 1 trigger
 │   │   └── verify.py               # Submission + Agents 2+3 pipeline
 │   ├── core/
 │   │   ├── chutes_client.py        # Async Chutes HTTP engine
 │   │   ├── config.py               # Pydantic settings
-│   │   ├── database.py             # In-memory stores (MVP)
+│   │   ├── db.py                   # SQLite / PostgreSQL async engine
 │   │   └── agents/
 │   │       ├── architect.py        # Agent 1
 │   │       ├── validator.py        # Agent 2
 │   │       └── auditor.py          # Agent 3 + consensus
+│   ├── repositories/store.py       # Persistence layer
 │   ├── models/schemas.py           # Pydantic models & enums
 │   └── static/                     # Horizon-inspired dashboard
 ├── scripts/
-│   └── verify_chutes.py            # Test real Chutes inference
+│   ├── verify_chutes.py            # Test real Chutes inference
+│   ├── smoke_test.py               # E2E API checks
+│   ├── live_audit.py               # Production honesty audit
+│   ├── seed_professional_demo.py   # Demo data for recordings
+│   └── record_demo_video.py        # Automated demo video (local output)
+├── docs/
+│   ├── screenshots/                # Devpost gallery (regenerate via script)
+│   └── demo_video/                 # README only — videos stay local
+├── tests/
 ├── .env.example
 ├── requirements.txt
 └── README.md
@@ -218,7 +230,7 @@ python scripts/verify_chutes.py
 | AI Compute | Chutes decentralized network (`llm.chutes.ai/v1`) |
 | Auth | Sign In with Chutes (OAuth 2.0 PKCE) |
 | Frontend | Tailwind CSS, ApexCharts (Horizon UI inspired) |
-| Data (MVP) | In-memory dict stores — swap for PostgreSQL in production |
+| Data | SQLite by default (`data/nexus.db`) — PostgreSQL via `DATABASE_URL` |
 
 ---
 
@@ -229,7 +241,7 @@ python scripts/verify_chutes.py
 > → Freelancer submits GitHub repo  
 > → Agent 2 runs tests & measures latency  
 > → Agent 3: *"Coverage 88%, latency 150ms — **100% Approved**"*  
-> → Immutable on-chain audit record — neither party can tamper
+> → Cryptographic verification audit record — neither party can tamper with logged verdicts
 
 ---
 
@@ -242,7 +254,7 @@ Pre-captured screenshots (1920×1280, 3:2) in [`docs/screenshots/`](docs/screens
 | `01-dashboard-overview.png` | Overview — ApexCharts consensus & radar |
 | `02-company-create-contract.png` | Company creating smart task (Agent 1) |
 | `03-agent-consensus-pipeline.png` | Multi-agent activity feed & consensus |
-| `04-onchain-audit-trail.png` | Immutable on-chain audit records |
+| `04-verification-audit-trail.png` | Verification audit records + SHA-256 hash |
 
 Regenerate anytime:
 ```bash
@@ -276,12 +288,14 @@ python scripts/smoke_test.py   # full E2E
 
 - [x] Multi-agent consensus on Chutes compute
 - [x] Sign In with Chutes integration
-- [x] On-chain inference audit logs
+- [x] Chutes inference audit logs
 - [x] Working FastAPI MVP + dashboard
 - [x] Persistent database
 - [x] Live Chutes API + real inference IDs
-- [ ] Record 3–5 min demo video (see `DEMO_VIDEO_SCRIPT.md`)
+- [ ] Record demo video + voiceover ([`docs/demo_video/README.md`](docs/demo_video/README.md))
 - [ ] Submit GitHub + YouTube links on Devpost
+
+> **Note:** Payment escrow and blockchain anchoring are not implemented in this MVP — see `GET /health` for feature flags.
 
 ---
 

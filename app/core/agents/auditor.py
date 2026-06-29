@@ -8,7 +8,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from app.core.chutes_client import ChutesClientError, get_chutes_client
+from app.core.chutes_client import ChutesClientError, get_chutes_client, inference_meta
 from app.core.config import get_settings
 from app.models.schemas import AuditorOutput, KPIBlueprint, ValidatorOutput, VerificationVerdict
 
@@ -80,14 +80,15 @@ async def run_auditor(
         logger.error("[AUDITOR] Chutes error: %s", exc)
         raise
 
-    inference_id = response.get("id")
+    meta = inference_meta(response)
+    inference_id = meta["inference_id"]
     content = response["choices"][0]["message"]["content"]
-    logger.info("[AUDITOR] Consensus inference complete | id=%s", inference_id)
+    logger.info("[AUDITOR] Consensus inference complete | id=%s mode=%s", inference_id, meta["mode"])
 
     parsed = _parse_auditor_response(content, validator_output)
-    output = AuditorOutput(**parsed, inference_id=inference_id)
+    output = AuditorOutput(**parsed, inference_id=inference_id, inference_mode=meta["mode"])
 
-    # Immutable on-chain style audit payload (persisted by API layer)
+    # Tamper-evident audit payload (SHA-256 hash + persisted record — not a blockchain tx)
     on_chain_record = {
         "contract_id": contract_id,
         "agent": "auditor_consensus",
@@ -101,8 +102,12 @@ async def run_auditor(
             "validator": validator_output.inference_id,
             "auditor": inference_id,
         },
-        "network": "chutes-decentralized-compute",
-        "immutable": True,
+        "inference_modes": {
+            "validator": validator_output.inference_mode,
+            "auditor": meta["mode"],
+        },
+        "storage": "persistent_sqlite_audit_log",
+        "integrity": "sha256_hash",
     }
 
     logger.info("[AUDITOR] VERDICT: %s", output.verdict.value)

@@ -66,6 +66,8 @@ async def submit_work(
         {"agent": "system", "step": "submission_received", "status": "completed",
          "detail": f"Freelancer {user.chutes_id} submitted work"},
     )
+    await store.release_lock()
+
     pipeline.append(AgentStepLog(
         agent="system", step="submission_received", status="completed",
         detail="Work submission received",
@@ -75,6 +77,7 @@ async def submit_work(
         body.contract_id,
         {"agent": "validator", "step": "artifact_validation", "status": "running"},
     )
+    await store.release_lock()
     pipeline.append(AgentStepLog(agent="validator", step="artifact_validation", status="running"))
 
     try:
@@ -107,6 +110,7 @@ async def submit_work(
         body.contract_id,
         {"agent": "auditor", "step": "consensus_review", "status": "running"},
     )
+    await store.release_lock()
     pipeline.append(AgentStepLog(agent="auditor", step="consensus_review", status="running"))
 
     try:
@@ -141,13 +145,20 @@ async def submit_work(
     )
     payment_pct = auditor_output.consensus_score_percent if final_status == ContractStatus.APPROVED else 0.0
 
+    inference_summary = {
+        "validator": validator_output.inference_mode or "unknown",
+        "auditor": auditor_output.inference_mode or "unknown",
+    }
+
     await store.update_contract(
         row,
         status=final_status.value,
         last_verification={
             "validator": validator_output.model_dump(),
             "auditor": auditor_output.model_dump(),
+            "audit_record_id": on_chain_record["audit_id"],
             "on_chain_audit_id": on_chain_record["audit_id"],
+            "inference_summary": inference_summary,
         },
     )
 
@@ -159,8 +170,10 @@ async def submit_work(
         agent_pipeline=pipeline,
         validator_output=validator_output,
         auditor_output=auditor_output,
+        audit_record_id=on_chain_record["audit_id"],
         on_chain_audit_id=on_chain_record["audit_id"],
         payment_recommendation_percent=payment_pct,
+        inference_summary=inference_summary,
     )
 
 

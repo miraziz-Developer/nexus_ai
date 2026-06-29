@@ -15,14 +15,34 @@ async def test_health(client):
 
 
 @pytest.mark.asyncio
+async def test_register_and_login(client):
+    reg = await client.post("/api/v1/auth/register", json={
+        "chutes_id": "login_test_user", "role": "freelancer", "name": "Login Test",
+    })
+    assert reg.status_code == 201
+
+    dup = await client.post("/api/v1/auth/register", json={
+        "chutes_id": "login_test_user", "role": "freelancer", "name": "Login Test",
+    })
+    assert dup.status_code == 409
+
+    login = await client.post("/api/v1/auth/login", json={"chutes_id": "login_test_user"})
+    assert login.status_code == 200
+    assert login.json()["user"]["role"] == "freelancer"
+
+    missing = await client.post("/api/v1/auth/login", json={"chutes_id": "no_such_user_xyz"})
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
 async def test_full_pipeline(client):
-    co = await client.post("/api/v1/auth/signin", json={
+    co = await client.post("/api/v1/auth/register", json={
         "chutes_id": "test_co", "role": "company", "name": "Test Co",
     })
-    assert co.status_code == 200
+    assert co.status_code == 201
     co_token = co.json()["access_token"]
 
-    fr = await client.post("/api/v1/auth/signin", json={
+    fr = await client.post("/api/v1/auth/register", json={
         "chutes_id": "test_fr", "role": "freelancer", "name": "Test FR",
     })
     fr_token = fr.json()["access_token"]
@@ -67,7 +87,7 @@ async def test_full_pipeline(client):
 @pytest.mark.asyncio
 async def test_persistence_after_new_client(client):
     """Data survives within same DB (list contracts)."""
-    co = await client.post("/api/v1/auth/signin", json={
+    co = await client.post("/api/v1/auth/register", json={
         "chutes_id": "persist_co", "role": "company", "name": "Persist Co",
     })
     token = co.json()["access_token"]
